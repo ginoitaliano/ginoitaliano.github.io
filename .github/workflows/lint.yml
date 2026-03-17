@@ -13,15 +13,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 1. HTML VALIDITY 
+      #1. HTML VALIDITY
       - name: Validate HTML (W3C)
         uses: Cyb3r-Jak3/html5validator-action@v7.2.0
         with:
           root: .
-          css: false          # CSS handled separately below
+          css: false
           format: text
 
-      # 2. CSS VALIDITY
+      #2. CSS VALIDITY 
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -50,7 +50,6 @@ jobs:
 
       - name: Extract inline CSS and lint
         run: |
-          # Pull <style> block out of index.html into a tmp file for stylelint
           node - << 'EOF'
           const fs = require('fs');
           const html = fs.readFileSync('index.html', 'utf8');
@@ -66,25 +65,33 @@ jobs:
           stylelint _extracted.css --allow-empty-input
           rm -f _extracted.css
 
-      # 3. ACCESSIBILITY (a11y) 
+      # 3. ACCESSIBILITY (a11y)
       - name: Install pa11y
         run: npm install -g pa11y
 
+      - name: Write pa11y config
+        run: |
+          cat > .pa11yci << 'EOF'
+          {
+            "chromeLaunchConfig": {
+              "args": ["--no-sandbox", "--disable-setuid-sandbox"]
+            }
+          }
+          EOF
+
       - name: Run pa11y accessibility check
         run: |
-          # Serve the file locally so pa11y can crawl it
           npx serve . -p 8080 &
           SERVER_PID=$!
           sleep 3
           pa11y http://localhost:8080 \
-            --chromium-arg="--no-sandbox" \
-            --chromium-arg="--disable-setuid-sandbox" \
+            --config .pa11yci \
             --standard WCAG2AA \
             --reporter cli \
             --timeout 30000 || (kill $SERVER_PID && exit 1)
           kill $SERVER_PID
 
-      # 4. BROKEN LINKS
+      # 4. BROKEN LINKS 
       - name: Install lychee (link checker)
         uses: lycheeverse/lychee-action@v1
         with:
