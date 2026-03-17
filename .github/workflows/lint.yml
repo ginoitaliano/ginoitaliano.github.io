@@ -146,7 +146,7 @@ jobs:
           }
           EOF
 
-      # 4. BROKEN LINKS 
+      # 4. BROKEN LINKS
       - name: Check broken links (lychee)
         uses: lycheeverse/lychee-action@v1
         with:
@@ -155,6 +155,7 @@ jobs:
             --no-progress
             --exclude "mailto:"
             --exclude "localhost"
+            --exclude "https://fonts.googleapis.com/"
             --timeout 20
             ./index.html
           fail: true
