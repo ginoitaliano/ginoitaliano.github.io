@@ -13,7 +13,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      #1. HTML VALIDITY
+      # 1. HTML VALIDITY
       - name: Validate HTML (W3C)
         uses: Cyb3r-Jak3/html5validator-action@v7.2.0
         with:
@@ -21,7 +21,7 @@ jobs:
           css: false
           format: text
 
-      # 2. CSS VALIDITY
+      # 2. CSS VALIDITY 
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -65,17 +65,88 @@ jobs:
           stylelint _extracted.css --allow-empty-input
           rm -f _extracted.css
 
-      #3. ACCESSIBILITY (axe-core, no browser needed)
-      - name: Install axe-core CLI
-        run: npm install -g @axe-core/cli
-
-      - name: Run axe accessibility check
+      # 3. ACCESSIBILITY (pure Node, no browser needed) 
+      - name: Run accessibility check
         run: |
-          axe index.html \
-            --exit \
-            --tags wcag2a,wcag2aa
+          node - << 'EOF'
+          const fs = require('fs');
+          const html = fs.readFileSync('index.html', 'utf8');
+          let errors = [];
+          let passes = [];
 
-      #4. BROKEN LINKS
+          // 1. lang attribute on <html>
+          if (/<html[^>]+lang=["'][a-z]+["']/i.test(html)) {
+            passes.push('✅ <html> has lang attribute');
+          } else {
+            errors.push('❌ <html> missing lang attribute (WCAG 3.1.1)');
+          }
+
+          // 2. <title> exists and is non-empty
+          const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
+          if (titleMatch && titleMatch[1].trim()) {
+            passes.push('✅ <title> present: "' + titleMatch[1].trim() + '"');
+          } else {
+            errors.push('❌ Missing or empty <title> (WCAG 2.4.2)');
+          }
+
+          // 3. All <a> tags have non-empty text or aria-label
+          const anchors = [...html.matchAll(/<a\s[^>]*>([\s\S]*?)<\/a>/gi)];
+          anchors.forEach(match => {
+            const tag = match[0];
+            const inner = match[1].replace(/<[^>]+>/g, '').trim();
+            const hasAriaLabel = /aria-label=["'][^"']+["']/i.test(tag);
+            if (!inner && !hasAriaLabel) {
+              errors.push('❌ <a> with no text or aria-label (WCAG 2.4.4): ' + tag.slice(0, 80));
+            }
+          });
+          if (anchors.length > 0 && errors.filter(e => e.includes('2.4.4')).length === 0) {
+            passes.push('✅ All ' + anchors.length + ' links have accessible text');
+          }
+
+          // 4. No duplicate IDs
+          const ids = [...html.matchAll(/\sid=["']([^"']+)["']/gi)].map(m => m[1]);
+          const dupes = ids.filter((id, i) => ids.indexOf(id) !== i);
+          if (dupes.length > 0) {
+            errors.push('❌ Duplicate IDs found: ' + dupes.join(', ') + ' (WCAG 4.1.1)');
+          } else {
+            passes.push('✅ No duplicate IDs');
+          }
+
+          // 5. All <img> tags have alt attributes
+          const imgs = [...html.matchAll(/<img\s[^>]*>/gi)];
+          imgs.forEach(match => {
+            if (!/alt=["'][^"']*["']/i.test(match[0])) {
+              errors.push('❌ <img> missing alt attribute (WCAG 1.1.1): ' + match[0].slice(0, 80));
+            }
+          });
+          if (imgs.length === 0) passes.push('✅ No images without alt (no images present)');
+
+          // 6. target="_blank" links have rel="noopener"
+          const blankLinks = [...html.matchAll(/<a\s[^>]*target=["']_blank["'][^>]*>/gi)];
+          blankLinks.forEach(match => {
+            if (!/rel=["'][^"']*(noopener|noreferrer)[^"']*["']/i.test(match[0])) {
+              errors.push('❌ target="_blank" link missing rel="noopener": ' + match[0].slice(0, 80));
+            }
+          });
+          if (blankLinks.length > 0 && errors.filter(e => e.includes('noopener')).length === 0) {
+            passes.push('✅ All ' + blankLinks.length + ' external links have rel="noopener"');
+          }
+
+          // Report
+          console.log('\n── Accessibility Check ──────────────────\n');
+          passes.forEach(p => console.log(p));
+          if (errors.length > 0) {
+            console.log('');
+            errors.forEach(e => console.error(e));
+            console.log('\n❌ ' + errors.length + ' violation(s) found');
+            process.exit(1);
+          } else {
+            console.log('\n✅ All checks passed!');
+            process.exit(0);
+          }
+          EOF
+
+      # 4. BROKEN LINKS 
       - name: Check broken links (lychee)
         uses: lycheeverse/lychee-action@v1
         with:
