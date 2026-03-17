@@ -1,0 +1,91 @@
+name: Lint & Quality Check
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  lint:
+    name: HTML · CSS · Accessibility · Links
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 1. HTML VALIDITY
+      - name: Validate HTML (W3C)
+        uses: Cyb3r-Jak3/html5validator-action@v7.2.0
+        with:
+          root: .
+          css: false          # CSS handled separately below
+          format: text
+
+      # 2. CSS VALIDITY
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install stylelint
+        run: npm install -g stylelint stylelint-config-standard
+
+      - name: Write stylelint config
+        run: |
+          cat > .stylelintrc.json << 'EOF'
+          {
+            "extends": "stylelint-config-standard",
+            "rules": {
+              "no-descending-specificity": null,
+              "alpha-value-notation": null,
+              "color-function-notation": null
+            }
+          }
+          EOF
+
+      - name: Extract inline CSS and lint
+        run: |
+          # Pull <style> block out of index.html into a tmp file for stylelint
+          node - << 'EOF'
+          const fs = require('fs');
+          const html = fs.readFileSync('index.html', 'utf8');
+          const match = html.match(/<style[^>]*>([\s\S]*?)<\/style>/i);
+          if (match) {
+            fs.writeFileSync('_extracted.css', match[1]);
+            console.log('CSS extracted successfully');
+          } else {
+            console.log('No inline <style> block found');
+            fs.writeFileSync('_extracted.css', '');
+          }
+          EOF
+          stylelint _extracted.css --allow-empty-input
+          rm -f _extracted.css
+
+      # 3. ACCESSIBILITY (a11y)
+      - name: Install pa11y
+        run: npm install -g pa11y
+
+      - name: Run pa11y accessibility check
+        run: |
+          # Serve the file locally so pa11y can crawl it
+          npx serve . -p 8080 &
+          SERVER_PID=$!
+          sleep 3
+          pa11y http://localhost:8080 \
+            --standard WCAG2AA \
+            --reporter cli \
+            --timeout 30000 || (kill $SERVER_PID && exit 1)
+          kill $SERVER_PID
+
+      # 4. BROKEN LINKS 
+      - name: Install lychee (link checker)
+        uses: lycheeverse/lychee-action@v1
+        with:
+          args: >
+            --verbose
+            --no-progress
+            --exclude "mailto:"
+            --exclude "localhost"
+            --timeout 20
+            ./index.html
+          fail: true
